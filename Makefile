@@ -12,7 +12,7 @@ $(BINARY): $(APP_NAME).swift | $(BUNDLE)/Contents/MacOS
 $(BUNDLE)/Contents/MacOS:
 	mkdir -p $@
 
-# Tuer l'ancien process avant de relancer
+# Kill old instance (if any) before running a new one
 kill:
 	@pkill -f "$(BUNDLE)" 2>/dev/null || true
 	@sleep 0.5
@@ -22,5 +22,13 @@ run: kill all
 
 clean:
 	rm -f $(BINARY)
+	rm -f /usr/local/bin/nt
+	rm -f /usr/local/bin/notty
+
+# Install "nt" and "notty" commands globally
+install: all
+	ln -sf $(realpath $(BINARY)) /usr/local/bin/nt
+	ln -sf $(realpath $(BINARY)) /usr/local/bin/notty
+	@echo "Commands 'nt' and 'notty' installed. Type 'nt help' for options."
 
 re: kill clean all

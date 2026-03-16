@@ -1,40 +1,39 @@
 import Cocoa
 
-// --- Sous-classe de NSPanel ---
-// Par défaut, un NSPanel borderless ne peut PAS devenir "key window",
-// ce qui empêche le clavier de fonctionner dans le textView.
-// On override canBecomeKey pour forcer true.
+// --- NSPanel subclass ---
+// By default, a borderless NSPanel cannot become key window,
+// which prevents keyboard input in the textView.
+// We override canBecomeKey to force it to true.
 class NotePanel: NSPanel {
     override var canBecomeKey: Bool {
         return true
     }
 
-    // Zone de resize : uniquement les 4 coins (12x12 pixels)
+    // Resize zone: only the 4 corners (12x12 pixels)
     let cornerSize: CGFloat = 12
 
     override func mouseDown(with event: NSEvent) {
         let loc = event.locationInWindow
         let f = frame
-        // Vérifier si le clic est dans un des 4 coins
+        // Check if the click is in one of the 4 corners
         let inBottomLeft  = loc.x < cornerSize && loc.y < cornerSize
         let inBottomRight = loc.x > f.width - cornerSize && loc.y < cornerSize
         let inTopLeft     = loc.x < cornerSize && loc.y > f.height - cornerSize
         let inTopRight    = loc.x > f.width - cornerSize && loc.y > f.height - cornerSize
 
         if inBottomLeft || inBottomRight || inTopLeft || inTopRight {
-            // Resize depuis le coin
             performResize(from: event)
         } else {
             super.mouseDown(with: event)
         }
     }
 
-    // Resize manuel car le panel est borderless (pas de resize handle natif)
+    // Manual resize since the panel is borderless (no native resize handle)
     func performResize(from startEvent: NSEvent) {
         let startFrame = frame
         let startLoc = NSEvent.mouseLocation
 
-        // Boucle de drag pour le resize (coin bas-droit = standard)
+        // Drag loop for resize
         while true {
             guard let event = nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
             if event.type == .leftMouseUp { break }
@@ -43,10 +42,9 @@ class NotePanel: NSPanel {
             let dx = currentLoc.x - startLoc.x
             let dy = currentLoc.y - startLoc.y
 
-            // Resize depuis le coin bas-droit : largeur + dx, hauteur - dy, origin.y + dy
             var newWidth = startFrame.width + dx
             var newHeight = startFrame.height - dy
-            // Taille minimum
+            // Minimum size
             newWidth = max(newWidth, 200)
             newHeight = max(newHeight, 200)
 
@@ -58,26 +56,30 @@ class NotePanel: NSPanel {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    // L'icône dans la barre des menus
+    // Menu bar icon
     var statusItem: NSStatusItem!
 
-    // Le panel qui s'ouvre quand on clique (NotePanel, pas NSPanel)
+    // Floating panel (NotePanel, not NSPanel)
     var panel: NotePanel!
 
-    // La zone de texte
+    // Text editor
     var textView: NSTextView!
 
-    // Monitors pour détecter les clics en dehors du panel
-    var globalClickMonitor: Any?     // clics dans les AUTRES apps
-    var localClickMonitor: Any?      // clics dans NOTRE app (hors panel)
+    // Event monitors to detect clicks outside the panel
+    var globalClickMonitor: Any?     // clicks in OTHER apps
+    var localClickMonitor: Any?      // clicks in OUR app (outside panel)
 
-    // Fichier où on sauvegarde le texte
+    // Timestamp of last close — prevents the global monitor from closing
+    // the panel right before togglePanel reopens it
+    var lastCloseTime: Date = .distantPast
+
+    // File where notes are saved
     let saveURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".notty.txt")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
-        // --- 1. Créer l'icône dans la barre des menus ---
+        // --- 1. Create menu bar icon ---
         statusItem = NSStatusBar.system.statusItem(
             withLength: NSStatusItem.squareLength
         )
@@ -91,11 +93,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        // --- 2. Créer le panel ---
-        // IMPORTANT : PAS de .nonactivatingPanel !
-        // .nonactivatingPanel empêche l'app de s'activer, ce qui bloque
-        // l'ouverture du panel quand une autre app est au premier plan
-        // ET empêche le clavier de fonctionner.
+        // --- 2. Create the panel ---
+        // IMPORTANT: no .nonactivatingPanel!
+        // It prevents app activation, which blocks the panel from opening
+        // when another app is in the foreground AND prevents keyboard input.
         panel = NotePanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
             styleMask: [.borderless],
@@ -105,35 +106,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hidesOnDeactivate = false          // on gère la fermeture nous-mêmes
-        panel.isReleasedWhenClosed = false        // évite un crash si on ré-ouvre
-        panel.isFloatingPanel = true              // reste au-dessus des autres fenêtres
+        panel.hidesOnDeactivate = false          // we handle closing ourselves
+        panel.isReleasedWhenClosed = false        // prevents crash on reopen
+        panel.isFloatingPanel = true              // stays above other windows
         panel.collectionBehavior = [
-            .canJoinAllSpaces,                   // visible sur tous les Spaces/bureaux
-            .fullScreenAuxiliary                 // visible même en fullscreen
+            .canJoinAllSpaces,                   // visible on all Spaces/desktops
+            .fullScreenAuxiliary                 // visible even in fullscreen
         ]
 
-        // --- 3. Container avec fond sombre et coins arrondis ---
+        // --- 3. Dark container with rounded corners ---
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.95).cgColor
         container.layer?.cornerRadius = 12
         container.layer?.borderWidth = 1
         container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.08).cgColor
-        container.autoresizingMask = [.width, .height]   // s'adapte quand le panel est resizé
+        container.autoresizingMask = [.width, .height]   // adapts when panel is resized
 
-        // --- 4. Titre "Notty" en haut ---
+        // --- 4. Title "Notty" at the top ---
         let title = NSTextField(labelWithString: "Notty")
         title.frame = NSRect(x: 16, y: 365, width: 200, height: 24)
         title.font = NSFont(name: "Space Mono", size: 14)
             ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .bold)
         title.textColor = NSColor(white: 1.0, alpha: 0.5)
-        title.autoresizingMask = [.minYMargin]           // reste collé en haut
+        title.autoresizingMask = [.minYMargin]           // stays pinned to the top
         container.addSubview(title)
 
-        // --- 5. Zone de texte avec scroll ---
+        // --- 5. Text editor with scroll ---
         let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 296, height: 345))
-        scrollView.autoresizingMask = [.width, .height]  // s'adapte au resize
+        scrollView.autoresizingMask = [.width, .height]  // adapts on resize
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -155,12 +156,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         container.addSubview(scrollView)
         panel.contentView = container
 
-        // --- 6. Charger le texte sauvegardé ---
+        // --- 6. Load saved text ---
         if let saved = try? String(contentsOf: saveURL, encoding: .utf8) {
             textView.string = saved
         }
 
-        // --- 7. Sauvegarder automatiquement à chaque modification ---
+        // --- 7. Auto-save on every text change ---
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(textDidChange),
@@ -169,18 +170,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    // --- Toggle : ouvrir ou fermer ---
+    // --- Toggle: open or close ---
     @objc func togglePanel() {
         if panel.isVisible {
             closePanel()
         } else {
+            // If the panel was just closed by the global monitor (clicking the icon
+            // counts as a global click), don't reopen it immediately
+            if Date().timeIntervalSince(lastCloseTime) < 0.3 { return }
             openPanel()
         }
     }
 
-    // --- Ouvrir le panel ---
+    // --- Open the panel ---
     func openPanel() {
-        // Positionner le panel juste en-dessous de l'icône
+        // Reload notes from file (in case they were added via CLI)
+        if let saved = try? String(contentsOf: saveURL, encoding: .utf8) {
+            textView.string = saved
+        }
+
+        // Position the panel just below the menu bar icon
         if let button = statusItem.button, let btnWindow = button.window {
             let buttonRect = btnWindow.convertToScreen(button.frame)
             let x = buttonRect.midX - panel.frame.width / 2
@@ -188,11 +197,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        // ORDRE IMPORTANT :
-        // 1. Activer l'app d'abord (sinon le panel ne reçoit pas le focus)
-        // 2. Afficher le panel
-        // 3. Donner le focus au textView
-        // Changer l'icône en "folder.fill" quand le panel est ouvert
+        // IMPORTANT ORDER:
+        // 1. Activate app first (otherwise panel won't receive focus)
+        // 2. Show the panel
+        // 3. Give focus to textView
+
+        // Switch icon to "folder.fill" when panel is open
         statusItem.button?.image = NSImage(
             systemSymbolName: "folder.fill",
             accessibilityDescription: "Notty"
@@ -202,37 +212,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(textView)
 
-        // Écouter les clics en dehors pour fermer le panel
+        // Listen for clicks outside to close the panel
 
-        // Global : clics dans les AUTRES applications
+        // Global: clicks in OTHER applications
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             self?.closePanel()
         }
 
-        // Local : clics dans NOTRE app mais en dehors du panel
+        // Local: clicks in OUR app but outside the panel
         localClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             guard let self = self else { return event }
-            if event.window === self.panel { return event }  // clic dans le panel → on laisse passer
+            if event.window === self.panel { return event }  // click inside panel — let it through
             self.closePanel()
             return event
         }
     }
 
-    // --- Fermer le panel ---
+    // --- Close the panel ---
     func closePanel() {
-        // Remettre l'icône "folder" (fermé)
+        // Switch icon back to "folder" (closed)
         statusItem.button?.image = NSImage(
             systemSymbolName: "folder",
             accessibilityDescription: "Notty"
         )
 
         panel.orderOut(nil)
+        lastCloseTime = Date()
 
-        // Retirer les monitors
+        // Remove event monitors
         if let monitor = globalClickMonitor {
             NSEvent.removeMonitor(monitor)
             globalClickMonitor = nil
@@ -243,15 +254,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // --- Sauvegarde auto dans ~/.notty.txt ---
+    // --- Auto-save to ~/.notty.txt ---
     @objc func textDidChange(_ notification: Notification) {
         try? textView.string.write(to: saveURL, atomically: true, encoding: .utf8)
     }
 }
 
-// --- Lancement ---
-let app = NSApplication.shared
-app.setActivationPolicy(.accessory)     // pas d'icône dans le Dock
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+// --- CLI or GUI mode ---
+// If arguments are passed -> terminal mode (no GUI)
+// Otherwise -> launch the menu bar app
+
+let saveURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".notty.txt")
+
+let args = CommandLine.arguments
+
+// First argument is always the binary path, we look from the 2nd one
+if args.count > 1 {
+    let command = args[1]
+
+    switch command {
+
+    // nt list — display all notes
+    case "list", "ls":
+        if let content = try? String(contentsOf: saveURL, encoding: .utf8) {
+            print(content.isEmpty ? "(empty)" : content)
+        } else {
+            print("(no notes)")
+        }
+
+    // nt clear — clear all notes (with confirmation)
+    case "clear":
+        print("Are you sure? (yes/no) ", terminator: "")
+        if let answer = readLine()?.lowercased(), answer == "yes" || answer == "y" {
+            try? "".write(to: saveURL, atomically: true, encoding: .utf8)
+            print("Notes cleared.")
+        } else {
+            print("Cancelled.")
+        }
+
+    // nt help
+    case "help", "--help", "-h":
+        print("""
+        nt — Notty CLI
+
+        Usage:
+          nt / notty            Launch the menu bar app
+          nt <text>             Add a note
+          nt list               Display all notes
+          nt clear              Clear all notes
+          nt help               Show this help
+        """)
+
+    // nt <anything else> — add a note
+    default:
+        let note = args.dropFirst().joined(separator: " ")
+        var current = (try? String(contentsOf: saveURL, encoding: .utf8)) ?? ""
+        if !current.isEmpty && !current.hasSuffix("\n") {
+            current += "\n"
+        }
+        current += note + "\n"
+        try? current.write(to: saveURL, atomically: true, encoding: .utf8)
+        print("+ \(note)")
+    }
+
+} else {
+    // No arguments -> launch the GUI app
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.run()
+}
