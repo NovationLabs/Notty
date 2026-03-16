@@ -32,8 +32,12 @@ git commit -m "[MODIFIED]: bump version to $VERSION" --allow-empty
 echo "==> Pushing code..."
 git push origin main
 
+echo "==> Building .dmg..."
+make dmg
+DMG="Notty.dmg"
+
 echo "==> Création de la release $VERSION..."
-gh release create "$VERSION" --repo "$REPO" --title "$VERSION" --notes "$NOTES"
+gh release create "$VERSION" --repo "$REPO" --title "$VERSION" --notes "$NOTES" "$DMG"
 
 echo "==> Calcul du sha256..."
 SHA=$(curl -sL "https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz" | shasum -a 256 | awk '{print $1}')

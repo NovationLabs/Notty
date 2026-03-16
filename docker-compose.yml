@@ -1,0 +1,9 @@
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: notty-web
+    ports:
+      - "8080:80"
+    restart: always

@@ -2,7 +2,7 @@ APP_NAME = Notty
 BUNDLE = $(APP_NAME).app
 BINARY = $(BUNDLE)/Contents/MacOS/$(APP_NAME)
 
-.PHONY: all run clean re kill
+.PHONY: all run clean re kill dmg
 
 all: $(BINARY)
 
@@ -30,5 +30,11 @@ install: all
 	ln -sf $(realpath $(BINARY)) /usr/local/bin/nt
 	ln -sf $(realpath $(BINARY)) /usr/local/bin/notty
 	@echo "Commands 'nt' and 'notty' installed. Type 'nt help' for options."
+
+# Create .dmg installer
+dmg: all
+	@rm -f $(APP_NAME).dmg
+	hdiutil create -volname "$(APP_NAME)" -srcfolder $(BUNDLE) -ov -format UDZO $(APP_NAME).dmg
+	@echo "Created $(APP_NAME).dmg"
 
 re: kill clean all
