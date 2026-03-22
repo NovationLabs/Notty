@@ -1,0 +1,32 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-notty
+        uses: actions/checkout@v4
+        with:
+          repository: NovationLabs/homebrew-notty
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        run: |
+          VERSION=${{ github.event.release.tag_name }}
+          URL="https://github.com/NovationLabs/Notty/archive/refs/tags/${VERSION}.tar.gz"
+          SHA=$(curl -sL "$URL" | shasum -a 256 | awk '{print $1}')
+
+          sed -i "s|url \".*\"|url \"${URL}\"|" Formula/notty.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" Formula/notty.rb
+
+      - name: Push updated formula
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add Formula/notty.rb
+          git commit -m "[MODIFIED]: bump to ${{ github.event.release.tag_name }}"
+          git push
