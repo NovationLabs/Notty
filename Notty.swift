@@ -1,4 +1,5 @@
 import Cocoa
+import Carbon.HIToolbox
 
 // --- NSPanel subclass ---
 // By default, a borderless NSPanel cannot become key window,
@@ -94,6 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let saveURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".notty.txt")
 
+    var hotKeyRef: EventHotKeyRef?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
 
         // --- 1. Create menu bar icon ---
@@ -184,13 +187,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             textView.string = saved
         }
 
-        // --- 7. Auto-save on every text change ---
+        // --- 7. Global hotkey: ⌘+Control+N to toggle panel ---
+        registerHotKey()
+
+        // --- 8. Auto-save on every text change ---
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(textDidChange),
             name: NSText.didChangeNotification,
             object: textView
         )
+    }
+
+    // --- Global hotkey: ⌘+Control+N ---
+    func registerHotKey() {
+        var hotKeyID = EventHotKeyID()
+        // 4-char signature to identify the hotkey
+        hotKeyID.signature = OSType(0x6E6F7479)  // 'noty'
+        hotKeyID.id = 1
+
+        // kVK_ANSI_N = 45, cmdKey | controlKey = 256 | 4096
+        RegisterEventHotKey(45, UInt32(cmdKey | controlKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+
+        // Install Carbon event handler for hotkey press
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData -> OSStatus in
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
+            delegate.togglePanel()
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
 
     // --- Toggle: open or close ---

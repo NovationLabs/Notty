@@ -89,7 +89,7 @@ Notes added via CLI are instantly visible in the menu bar panel.
 |  6  | Works over fullscreen apps       |   ✅   |
 |  7  | Visible on all Spaces            |   ✅   |
 |  8  | CLI (`nt` / `notty`)             |   ✅   |
-|  9  | Keyboard shortcuts               |   ❌   |
+|  9  | Global shortcut `⌘+Control+N`   |   ✅   |
 |  10 | Multiple notes / tabs            |   ❌   |
 |  11 | Markdown preview                 |   ❌   |
 
@@ -99,6 +99,9 @@ Notty runs as a macOS accessory app (`LSUIElement`) — no Dock icon, no
 Cmd+Tab entry. It places a small folder icon in the menu bar. Click it
 to open a floating panel, click anywhere else to close it. The icon
 switches to `folder.fill` when the panel is open.
+
+Press `⌘+Control+N` from anywhere to instantly open or close the panel,
+without touching the mouse.
 
 Notes are persisted to `~/.notty.txt` on every keystroke. There is no
 save button. There is no file picker. It just works.
@@ -113,3 +116,7 @@ runs in terminal mode. No arguments launches the menu bar app.
 - **Build**: `swiftc` via Makefile
 - **Dependencies**: None
 - **Font**: Space Mono (fallback: system monospace)
+
+---
+
+<sub>Thanks to <a href="https://github.com/saihgupr">@saihgupr</a> for DMG Packaging 😁</sub>

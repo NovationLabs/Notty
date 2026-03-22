@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Download, Terminal, ArrowUpRight, Copy, Check, Folder, Sparkles } from 'lucide-react';
 
 const Home: React.FC = () => {
@@ -173,7 +174,11 @@ const Home: React.FC = () => {
             <a href="https://github.com/NovationLabs/Notty/releases" target="_blank" rel="noreferrer"
               className="hover:text-white/60 transition-colors">Releases</a>
           </div>
-          <p className="text-white/20 text-sm">&copy; 2026 NovationLabs</p>
+          <div className="flex items-center gap-4 text-sm text-white/20">
+            <Link to="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
+            <Link to="/legal" className="hover:text-white/50 transition-colors">Legal</Link>
+            <span>&copy; 2026 NovationLabs</span>
+          </div>
         </div>
       </footer>
     </div>

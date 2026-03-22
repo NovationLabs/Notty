@@ -31,10 +31,10 @@ install: all
 	ln -sf $(realpath $(BINARY)) /usr/local/bin/notty
 	@echo "Commands 'nt' and 'notty' installed. Type 'nt help' for options."
 
-# Create .dmg installer
+# Create .dmg installer using DMGMaker (custom Notty background)
 dmg: all
 	@rm -f $(APP_NAME).dmg
-	hdiutil create -volname "$(APP_NAME)" -srcfolder $(BUNDLE) -ov -format UDZO $(APP_NAME).dmg
+	cd DMGMaker && swift run "DMG Maker" --app "../$(BUNDLE)" --name "$(APP_NAME)"
 	@echo "Created $(APP_NAME).dmg"
 
 re: kill clean all

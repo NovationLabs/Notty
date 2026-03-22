@@ -17,6 +17,8 @@ jobs:
 
       - name: Create .dmg
         run: make dmg
+        env:
+          DYLD_LIBRARY_PATH: ""
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
