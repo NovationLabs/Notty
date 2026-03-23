@@ -1,83 +1,173 @@
 import Cocoa
 import Carbon.HIToolbox
 
-// --- NSPanel subclass ---
-// By default, a borderless NSPanel cannot become key window,
-// which prevents keyboard input in the textView.
-// We override canBecomeKey to force it to true.
+enum ResizeEdge {
+    case topLeft, top, topRight
+    case left, right
+    case bottomLeft, bottom, bottomRight
+}
+
+// Borderless NSPanel can't become key by default — keyboard input breaks without this
 class NotePanel: NSPanel {
-    override var canBecomeKey: Bool {
-        return true
+    override var canBecomeKey: Bool { return true }
+
+    let edgeSize: CGFloat = 6
+    let cornerSize: CGFloat = 12
+    let minPanelSize: CGFloat = 200
+
+    // Private Apple cursors (same ones the system uses for native window resize)
+    var nwseCursor: NSCursor {   // ↖↘
+        NSCursor.perform(Selector(("_windowResizeNorthWestSouthEastCursor")))?
+            .takeUnretainedValue() as? NSCursor ?? NSCursor.crosshair
+    }
+    var neswCursor: NSCursor {   // ↗↙
+        NSCursor.perform(Selector(("_windowResizeNorthEastSouthWestCursor")))?
+            .takeUnretainedValue() as? NSCursor ?? NSCursor.crosshair
+    }
+    var nsCursor: NSCursor {     // ↕
+        NSCursor.perform(Selector(("_windowResizeNorthSouthCursor")))?
+            .takeUnretainedValue() as? NSCursor ?? NSCursor.resizeUpDown
+    }
+    var ewCursor: NSCursor {     // ↔
+        NSCursor.perform(Selector(("_windowResizeEastWestCursor")))?
+            .takeUnretainedValue() as? NSCursor ?? NSCursor.resizeLeftRight
     }
 
-    // Resize zone: only the 4 corners (12x12 pixels)
-    let cornerSize: CGFloat = 12
+    func resizeEdge(at loc: NSPoint) -> ResizeEdge? {
+        let w = frame.width
+        let h = frame.height
+        let c = cornerSize
+
+        let inLeft   = loc.x < c
+        let inRight  = loc.x > w - c
+        let inBottom = loc.y < c
+        let inTop    = loc.y > h - c
+
+        if inLeft  && inBottom { return .bottomLeft }
+        if inRight && inBottom { return .bottomRight }
+        if inLeft  && inTop    { return .topLeft }
+        if inRight && inTop    { return .topRight }
+        if loc.x < edgeSize     { return .left }
+        if loc.x > w - edgeSize { return .right }
+        if loc.y < edgeSize     { return .bottom }
+        if loc.y > h - edgeSize { return .top }
+        return nil
+    }
+
+    func cursor(for edge: ResizeEdge) -> NSCursor {
+        switch edge {
+        case .topLeft, .bottomRight: return nwseCursor
+        case .topRight, .bottomLeft: return neswCursor
+        case .left, .right:          return ewCursor
+        case .top, .bottom:          return nsCursor
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
-        let loc = event.locationInWindow
-        let f = frame
-        // Check if the click is in one of the 4 corners
-        let inBottomRight = loc.x > f.width - cornerSize && loc.y < cornerSize
-
-        if inBottomRight {
-            performResize(from: event)
+        if let edge = resizeEdge(at: event.locationInWindow) {
+            performResize(edge: edge)
         } else {
             super.mouseDown(with: event)
         }
     }
 
-    // Manual resize since the panel is borderless (no native resize handle)
-    func performResize(from startEvent: NSEvent) {
-        let startFrame = frame
+    func performResize(edge: ResizeEdge) {
+        let start    = frame
         let startLoc = NSEvent.mouseLocation
 
-        // Drag loop for resize
+        cursor(for: edge).push()
+
         while true {
             guard let event = nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
             if event.type == .leftMouseUp { break }
 
-            let currentLoc = NSEvent.mouseLocation
-            let dx = currentLoc.x - startLoc.x
-            let dy = currentLoc.y - startLoc.y
+            let loc = NSEvent.mouseLocation
+            let dx  = loc.x - startLoc.x
+            let dy  = loc.y - startLoc.y
 
-            var newWidth = startFrame.width + dx
-            var newHeight = startFrame.height - dy
-            // Minimum size
-            newWidth = max(newWidth, 200)
-            newHeight = max(newHeight, 200)
+            var x = start.origin.x
+            var y = start.origin.y
+            var w = start.width
+            var h = start.height
 
-            let newOriginY = startFrame.origin.y + (startFrame.height - newHeight)
-            setFrame(NSRect(x: startFrame.origin.x, y: newOriginY, width: newWidth, height: newHeight), display: true)
+            switch edge {
+            case .right:
+                w = max(start.width + dx, minPanelSize)
+            case .left:
+                w = max(start.width - dx, minPanelSize)
+                x = start.maxX - w
+            case .top:
+                h = max(start.height + dy, minPanelSize)
+            case .bottom:
+                h = max(start.height - dy, minPanelSize)
+                y = start.maxY - h
+            case .bottomRight:
+                w = max(start.width + dx, minPanelSize)
+                h = max(start.height - dy, minPanelSize)
+                y = start.maxY - h
+            case .bottomLeft:
+                w = max(start.width - dx, minPanelSize)
+                x = start.maxX - w
+                h = max(start.height - dy, minPanelSize)
+                y = start.maxY - h
+            case .topRight:
+                w = max(start.width + dx, minPanelSize)
+                h = max(start.height + dy, minPanelSize)
+            case .topLeft:
+                w = max(start.width - dx, minPanelSize)
+                x = start.maxX - w
+                h = max(start.height + dy, minPanelSize)
+            }
+
+            setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        }
+
+        NSCursor.pop()
+    }
+}
+
+// One tracking area per resize zone — AppKit resets the cursor automatically on exit
+class ContainerView: NSView {
+    weak var panel: NotePanel?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        guard let panel = panel else { return }
+
+        let e = panel.edgeSize
+        let c = panel.cornerSize
+        let w = bounds.width
+        let h = bounds.height
+
+        let rects = [
+            NSRect(x: 0,   y: h-c, width: c,     height: c),     // top-left
+            NSRect(x: c,   y: h-e, width: w-2*c, height: e),     // top
+            NSRect(x: w-c, y: h-c, width: c,     height: c),     // top-right
+            NSRect(x: 0,   y: c,   width: e,     height: h-2*c), // left
+            NSRect(x: w-e, y: c,   width: e,     height: h-2*c), // right
+            NSRect(x: 0,   y: 0,   width: c,     height: c),     // bottom-left
+            NSRect(x: c,   y: 0,   width: w-2*c, height: e),     // bottom
+            NSRect(x: w-c, y: 0,   width: c,     height: c),     // bottom-right
+        ]
+        for rect in rects {
+            addTrackingArea(NSTrackingArea(rect: rect, options: [.activeAlways, .cursorUpdate], owner: self))
+        }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard let panel = panel else { return }
+        if let edge = panel.resizeEdge(at: event.locationInWindow) {
+            panel.cursor(for: edge).set()
         }
     }
 }
 
-// --- Resize grip: 3 diagonal lines (macOS style) ---
-class ResizeGripView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let color = NSColor(white: 1.0, alpha: 0.35).cgColor
-        ctx.setStrokeColor(color)
-        ctx.setLineWidth(1.0)
-        ctx.setLineCap(.round)
+// MARK: - Draggable header
 
-        let s = bounds.width
-        // 3 diagonal lines from bottom-left to top-right
-        for i in 0..<3 {
-            let offset = CGFloat(i) * 4
-            ctx.move(to: CGPoint(x: s - 2 - offset, y: 1))
-            ctx.addLine(to: CGPoint(x: s - 1, y: 2 + offset))
-            ctx.strokePath()
-        }
-    }
-}
-
-// MARK: - Draggable header (moves the panel + open/closed hand cursor)
 class DraggableHeaderView: NSView {
-    weak var panel: NSPanel?
+    weak var panel: NotePanel?
 
-    // resetCursorRects is the most reliable way to set a cursor in AppKit —
-    // it overrides child views (like NSTextView) that reset the cursor themselves
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
     }
@@ -85,7 +175,6 @@ class DraggableHeaderView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
-        // .cursorUpdate ensures AppKit calls cursorUpdate(with:) when entering from any subview
         addTrackingArea(NSTrackingArea(
             rect: bounds,
             options: [.activeAlways, .inVisibleRect, .cursorUpdate],
@@ -100,13 +189,17 @@ class DraggableHeaderView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let panel = panel else { return }
 
-        // Push closedHand — stays active even if mouse leaves the view bounds
+        // Top edge/corner — forward to panel resize
+        if panel.resizeEdge(at: event.locationInWindow) != nil {
+            panel.mouseDown(with: event)
+            return
+        }
+
         NSCursor.closedHand.push()
 
         let startMouse  = NSEvent.mouseLocation
         let startOrigin = panel.frame.origin
 
-        // Event loop: captures drag/up even outside the header bounds
         while true {
             guard let e = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
             if e.type == .leftMouseUp { break }
@@ -117,7 +210,6 @@ class DraggableHeaderView: NSView {
             ))
         }
 
-        // Restore cursor (pop closedHand, then force openHand since we're still in the header)
         NSCursor.pop()
         NSCursor.openHand.set()
     }
@@ -125,54 +217,36 @@ class DraggableHeaderView: NSView {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    // Menu bar icon
     var statusItem: NSStatusItem!
-
-    // Floating panel (NotePanel, not NSPanel)
     var panel: NotePanel!
-
-    // Text editor
     var textView: NSTextView!
 
-    // Event monitors to detect clicks outside the panel
-    var globalClickMonitor: Any?     // clicks in OTHER apps
-    var localClickMonitor: Any?      // clicks in OUR app (outside panel)
+    var globalClickMonitor: Any?
+    var localClickMonitor: Any?
 
-    // Timestamp of last close — prevents the global monitor from closing
-    // the panel right before togglePanel reopens it
+    // Prevents the global click monitor from closing the panel right as togglePanel reopens it
     var lastCloseTime: Date = .distantPast
-    var hasBeenPositioned: Bool = false   // position under icon only on first open
+    var hasBeenPositioned: Bool = false
 
-    // File where notes are saved
     let saveURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".notty.txt")
 
-    // Pinned mode: panel stays open even when clicking outside
     var isPinned: Bool = false
     var titleButton: NSButton!
-
     var hotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
-        // --- 1. Create menu bar icon ---
-        statusItem = NSStatusBar.system.statusItem(
-            withLength: NSStatusItem.squareLength
-        )
-
+        // 1. Menu bar icon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(
-                systemSymbolName: "folder",
-                accessibilityDescription: "Notty"
-            )
+            button.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Notty")
             button.action = #selector(togglePanel)
             button.target = self
         }
 
-        // --- 2. Create the panel ---
-        // IMPORTANT: no .nonactivatingPanel!
-        // It prevents app activation, which blocks the panel from opening
-        // when another app is in the foreground AND prevents keyboard input.
+        // 2. Panel
+        // No .nonactivatingPanel — it breaks keyboard input and foreground activation
         panel = NotePanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 400),
             styleMask: [.borderless],
@@ -182,24 +256,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hidesOnDeactivate = false          // we handle closing ourselves
-        panel.isReleasedWhenClosed = false        // prevents crash on reopen
-        panel.isFloatingPanel = true              // stays above other windows
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,                   // visible on all Spaces/desktops
-            .fullScreenAuxiliary                 // visible even in fullscreen
-        ]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        // --- 3. Dark container with rounded corners ---
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
+        // 3. Container
+        let container = ContainerView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
+        container.panel = panel
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.95).cgColor
         container.layer?.cornerRadius = 12
         container.layer?.borderWidth = 1
         container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.08).cgColor
-        container.autoresizingMask = [.width, .height]   // adapts when panel is resized
+        container.autoresizingMask = [.width, .height]
 
-        // --- 4. Draggable header (contains title + pin button) ---
+        // 4. Header
         let header = DraggableHeaderView(frame: NSRect(x: 0, y: 350, width: 320, height: 50))
         header.panel = panel
         header.autoresizingMask = [.width, .minYMargin]
@@ -223,9 +295,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         container.addSubview(header)
 
-        // --- 5. Text editor with scroll ---
+        // 5. Text editor
         let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 296, height: 345))
-        scrollView.autoresizingMask = [.width, .height]  // adapts on resize
+        scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -246,22 +318,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         scrollView.documentView = textView
         container.addSubview(scrollView)
 
-        // --- 6. Resize grip indicator (bottom-right corner) ---
-        let grip = ResizeGripView(frame: NSRect(x: 320 - 20, y: 4, width: 14, height: 14))
-        grip.autoresizingMask = [.minXMargin, .maxYMargin]
-        container.addSubview(grip)
-
         panel.contentView = container
 
-        // --- 6. Load saved text ---
+        // 6. Load saved notes
         if let saved = try? String(contentsOf: saveURL, encoding: .utf8) {
             textView.string = saved
         }
 
-        // --- 7. Global hotkey: ⌘+Control+N to toggle panel ---
+        // 7. Global hotkey ⌘+Control+N
         registerHotKey()
 
-        // --- 8. Auto-save on every text change ---
+        // 8. Auto-save
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(textDidChange),
@@ -270,17 +337,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    // --- Global hotkey: ⌘+Control+N ---
     func registerHotKey() {
         var hotKeyID = EventHotKeyID()
-        // 4-char signature to identify the hotkey
         hotKeyID.signature = OSType(0x6E6F7479)  // 'noty'
         hotKeyID.id = 1
 
-        // kVK_ANSI_N = 45, cmdKey | controlKey = 256 | 4096
+        // kVK_ANSI_N = 45
         RegisterEventHotKey(45, UInt32(cmdKey | controlKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
 
-        // Install Carbon event handler for hotkey press
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, userData -> OSStatus in
             let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
@@ -289,7 +353,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
 
-    // --- Toggle pinned mode ---
     @objc func togglePinned() {
         isPinned.toggle()
         let icon = isPinned ? "pin.fill" : "pin"
@@ -299,27 +362,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             : NSColor(white: 1.0, alpha: 0.2)
     }
 
-    // --- Toggle: open or close ---
     @objc func togglePanel() {
         if panel.isVisible {
             closePanel(force: true)
         } else {
-            // If the panel was just closed by the global monitor (clicking the icon
-            // counts as a global click), don't reopen it immediately
             if Date().timeIntervalSince(lastCloseTime) < 0.3 { return }
             openPanel()
         }
     }
 
-    // --- Open the panel ---
     func openPanel() {
-        // Reload notes from file (in case they were added via CLI)
         if let saved = try? String(contentsOf: saveURL, encoding: .utf8) {
             textView.string = saved
         }
 
-        // Position under the icon only on the very first open —
-        // after that, keep the position set by drag or resize
+        // Position under the icon on first open only; keep user-set position after that
         if !hasBeenPositioned {
             if let button = statusItem.button, let btnWindow = button.window {
                 let buttonRect = btnWindow.convertToScreen(button.frame)
@@ -330,86 +387,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasBeenPositioned = true
         }
 
-        // IMPORTANT ORDER:
-        // 1. Activate app first (otherwise panel won't receive focus)
-        // 2. Show the panel
-        // 3. Give focus to textView
-
-        // Switch icon to "folder.fill" when panel is open
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "folder.fill",
-            accessibilityDescription: "Notty"
-        )
+        statusItem.button?.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Notty")
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(textView)
 
-        // Listen for clicks outside to close the panel
-
-        // Global: clicks in OTHER applications
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             self?.closePanel()
         }
 
-        // Local: clicks in OUR app but outside the panel
         localClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] event in
             guard let self = self else { return event }
-            if event.window === self.panel { return event }  // click inside panel — let it through
+            if event.window === self.panel { return event }
             self.closePanel()
             return event
         }
     }
 
-    // --- Close the panel (force: bypasses pinned mode, used by icon toggle) ---
     func closePanel(force: Bool = false) {
         if isPinned && !force { return }
-        // Switch icon back to "folder" (closed)
-        statusItem.button?.image = NSImage(
-            systemSymbolName: "folder",
-            accessibilityDescription: "Notty"
-        )
+
+        statusItem.button?.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Notty")
 
         panel.orderOut(nil)
         lastCloseTime = Date()
 
-        // Remove event monitors
-        if let monitor = globalClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalClickMonitor = nil
-        }
-        if let monitor = localClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            localClickMonitor = nil
-        }
+        if let monitor = globalClickMonitor { NSEvent.removeMonitor(monitor); globalClickMonitor = nil }
+        if let monitor = localClickMonitor  { NSEvent.removeMonitor(monitor); localClickMonitor  = nil }
     }
 
-    // --- Auto-save to ~/.notty.txt ---
     @objc func textDidChange(_ notification: Notification) {
         try? textView.string.write(to: saveURL, atomically: true, encoding: .utf8)
     }
 }
 
-// --- CLI or GUI mode ---
-// If arguments are passed -> terminal mode (no GUI)
-// Otherwise -> launch the menu bar app
-
+// CLI or GUI depending on arguments
 let saveURL = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".notty.txt")
 
 let args = CommandLine.arguments
 
-// First argument is always the binary path, we look from the 2nd one
 if args.count > 1 {
     let command = args[1]
 
     switch command {
 
-    // nt list — display all notes
     case "list", "ls":
         if let content = try? String(contentsOf: saveURL, encoding: .utf8) {
             print(content.isEmpty ? "(empty)" : content)
@@ -417,7 +444,6 @@ if args.count > 1 {
             print("(no notes)")
         }
 
-    // nt clear — clear all notes (with confirmation)
     case "clear":
         print("Are you sure? (yes/no) ", terminator: "")
         if let answer = readLine()?.lowercased(), answer == "yes" || answer == "y" {
@@ -427,7 +453,6 @@ if args.count > 1 {
             print("Cancelled.")
         }
 
-    // nt help
     case "help", "--help", "-h":
         print("""
         nt — Notty CLI
@@ -440,20 +465,16 @@ if args.count > 1 {
           nt help               Show this help
         """)
 
-    // nt <anything else> — add a note
     default:
         let note = args.dropFirst().joined(separator: " ")
         var current = (try? String(contentsOf: saveURL, encoding: .utf8)) ?? ""
-        if !current.isEmpty && !current.hasSuffix("\n") {
-            current += "\n"
-        }
+        if !current.isEmpty && !current.hasSuffix("\n") { current += "\n" }
         current += note + "\n"
         try? current.write(to: saveURL, atomically: true, encoding: .utf8)
         print("+ \(note)")
     }
 
 } else {
-    // No arguments -> launch the GUI app
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let delegate = AppDelegate()
