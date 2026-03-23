@@ -95,6 +95,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let saveURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".notty.txt")
 
+    // Pinned mode: panel stays open even when clicking outside
+    var isPinned: Bool = false
+    var titleButton: NSButton!
+
     var hotKeyRef: EventHotKeyRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -143,14 +147,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.08).cgColor
         container.autoresizingMask = [.width, .height]   // adapts when panel is resized
 
-        // --- 4. Title "Notty" at the top ---
+        // --- 4. Title "Notty" ---
         let title = NSTextField(labelWithString: "Notty")
         title.frame = NSRect(x: 16, y: 365, width: 200, height: 24)
         title.font = NSFont(name: "Space Mono", size: 14)
             ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .bold)
         title.textColor = NSColor(white: 1.0, alpha: 0.5)
-        title.autoresizingMask = [.minYMargin]           // stays pinned to the top
+        title.autoresizingMask = [.minYMargin]
         container.addSubview(title)
+
+        // --- 4b. Pin button (top-right) ---
+        titleButton = NSButton(frame: NSRect(x: 288, y: 364, width: 22, height: 22))
+        titleButton.bezelStyle = .inline
+        titleButton.isBordered = false
+        titleButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin")
+        titleButton.contentTintColor = NSColor(white: 1.0, alpha: 0.2)
+        titleButton.autoresizingMask = [.minXMargin, .minYMargin]
+        titleButton.target = self
+        titleButton.action = #selector(togglePinned)
+        container.addSubview(titleButton)
 
         // --- 5. Text editor with scroll ---
         let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 296, height: 345))
@@ -218,10 +233,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
 
+    // --- Toggle pinned mode ---
+    @objc func togglePinned() {
+        isPinned.toggle()
+        let icon = isPinned ? "pin.fill" : "pin"
+        titleButton.image = NSImage(systemSymbolName: icon, accessibilityDescription: "Pin")
+        titleButton.contentTintColor = isPinned
+            ? NSColor(white: 1.0, alpha: 0.8)
+            : NSColor(white: 1.0, alpha: 0.2)
+    }
+
     // --- Toggle: open or close ---
     @objc func togglePanel() {
         if panel.isVisible {
-            closePanel()
+            closePanel(force: true)
         } else {
             // If the panel was just closed by the global monitor (clicking the icon
             // counts as a global click), don't reopen it immediately
@@ -280,8 +305,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // --- Close the panel ---
-    func closePanel() {
+    // --- Close the panel (force: bypasses pinned mode, used by icon toggle) ---
+    func closePanel(force: Bool = false) {
+        if isPinned && !force { return }
         // Switch icon back to "folder" (closed)
         statusItem.button?.image = NSImage(
             systemSymbolName: "folder",
