@@ -72,6 +72,57 @@ class ResizeGripView: NSView {
     }
 }
 
+// MARK: - Draggable header (moves the panel + open/closed hand cursor)
+class DraggableHeaderView: NSView {
+    weak var panel: NSPanel?
+
+    // resetCursorRects is the most reliable way to set a cursor in AppKit —
+    // it overrides child views (like NSTextView) that reset the cursor themselves
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        // .cursorUpdate ensures AppKit calls cursorUpdate(with:) when entering from any subview
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self
+        ))
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.openHand.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let panel = panel else { return }
+
+        // Push closedHand — stays active even if mouse leaves the view bounds
+        NSCursor.closedHand.push()
+
+        let startMouse  = NSEvent.mouseLocation
+        let startOrigin = panel.frame.origin
+
+        // Event loop: captures drag/up even outside the header bounds
+        while true {
+            guard let e = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
+            if e.type == .leftMouseUp { break }
+            let loc = NSEvent.mouseLocation
+            panel.setFrameOrigin(NSPoint(
+                x: startOrigin.x + loc.x - startMouse.x,
+                y: startOrigin.y + loc.y - startMouse.y
+            ))
+        }
+
+        // Restore cursor (pop closedHand, then force openHand since we're still in the header)
+        NSCursor.pop()
+        NSCursor.openHand.set()
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Menu bar icon
@@ -147,25 +198,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.08).cgColor
         container.autoresizingMask = [.width, .height]   // adapts when panel is resized
 
-        // --- 4. Title "Notty" ---
+        // --- 4. Draggable header (contains title + pin button) ---
+        let header = DraggableHeaderView(frame: NSRect(x: 0, y: 350, width: 320, height: 50))
+        header.panel = panel
+        header.autoresizingMask = [.width, .minYMargin]
+
         let title = NSTextField(labelWithString: "Notty")
-        title.frame = NSRect(x: 16, y: 365, width: 200, height: 24)
+        title.frame = NSRect(x: 16, y: 15, width: 200, height: 24)
         title.font = NSFont(name: "Space Mono", size: 14)
             ?? NSFont.monospacedSystemFont(ofSize: 14, weight: .bold)
         title.textColor = NSColor(white: 1.0, alpha: 0.5)
-        title.autoresizingMask = [.minYMargin]
-        container.addSubview(title)
+        header.addSubview(title)
 
-        // --- 4b. Pin button (top-right) ---
-        titleButton = NSButton(frame: NSRect(x: 288, y: 364, width: 22, height: 22))
+        titleButton = NSButton(frame: NSRect(x: 288, y: 14, width: 22, height: 22))
         titleButton.bezelStyle = .inline
         titleButton.isBordered = false
         titleButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin")
         titleButton.contentTintColor = NSColor(white: 1.0, alpha: 0.2)
-        titleButton.autoresizingMask = [.minXMargin, .minYMargin]
+        titleButton.autoresizingMask = [.minXMargin]
         titleButton.target = self
         titleButton.action = #selector(togglePinned)
-        container.addSubview(titleButton)
+        header.addSubview(titleButton)
+
+        container.addSubview(header)
 
         // --- 5. Text editor with scroll ---
         let scrollView = NSScrollView(frame: NSRect(x: 12, y: 12, width: 296, height: 345))
