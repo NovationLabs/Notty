@@ -141,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Timestamp of last close — prevents the global monitor from closing
     // the panel right before togglePanel reopens it
     var lastCloseTime: Date = .distantPast
+    var hasBeenPositioned: Bool = false   // position under icon only on first open
 
     // File where notes are saved
     let saveURL = FileManager.default.homeDirectoryForCurrentUser
@@ -317,12 +318,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             textView.string = saved
         }
 
-        // Position the panel just below the menu bar icon
-        if let button = statusItem.button, let btnWindow = button.window {
-            let buttonRect = btnWindow.convertToScreen(button.frame)
-            let x = buttonRect.midX - panel.frame.width / 2
-            let y = buttonRect.minY - panel.frame.height - 4
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        // Position under the icon only on the very first open —
+        // after that, keep the position set by drag or resize
+        if !hasBeenPositioned {
+            if let button = statusItem.button, let btnWindow = button.window {
+                let buttonRect = btnWindow.convertToScreen(button.frame)
+                let x = buttonRect.midX - panel.frame.width / 2
+                let y = buttonRect.minY - panel.frame.height - 4
+                panel.setFrameOrigin(NSPoint(x: x, y: y))
+            }
+            hasBeenPositioned = true
         }
 
         // IMPORTANT ORDER:
