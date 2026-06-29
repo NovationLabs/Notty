@@ -204,10 +204,10 @@ class DraggableHeaderView: NSView {
             guard let e = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
             if e.type == .leftMouseUp { break }
             let loc = NSEvent.mouseLocation
-            panel.setFrameOrigin(NSPoint(
-                x: startOrigin.x + loc.x - startMouse.x,
-                y: startOrigin.y + loc.y - startMouse.y
-            ))
+            let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+            let newX = max(screen.minX, min(startOrigin.x + loc.x - startMouse.x, screen.maxX - panel.frame.width))
+            let newY = max(screen.minY, min(startOrigin.y + loc.y - startMouse.y, screen.maxY - panel.frame.height))
+            panel.setFrameOrigin(NSPoint(x: newX, y: newY))
         }
 
         NSCursor.pop()
