@@ -265,10 +265,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let container = ContainerView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
         container.panel = panel
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.95).cgColor
+        container.layer?.backgroundColor = NSColor(white: 0.3000, alpha: 0.95).cgColor
         container.layer?.cornerRadius = 12
         container.layer?.borderWidth = 1
-        container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.08).cgColor
+        container.layer?.borderColor = NSColor(white: 1.0, alpha: 0.0000009).cgColor
         container.autoresizingMask = [.width, .height]
 
         // 4. Header
